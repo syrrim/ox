@@ -1,29 +1,4 @@
-
-typedef struct Mark{
-    int x, y;
-} Mark;
-
-enum args {
-    ARG_FN,
-    ARG_ID,
-    ARG_FLT,
-    ARG_INT,
-    ARG_MRK,
-};
-
-#define COMMANDS(a, b)                                  \
-    a(import,          b(ARG_FN,0))                     \
-    a(export,          b(ARG_FN,0))                     \
-    a(rotate,          b(ARG_FLT,0))                    \
-    a(scale,           b(ARG_FLT,0))                    \
-    a(blur,            b(ARG_INT,0), b(ARG_INT,1))      \
-    a(crop,            b(ARG_MRK,0), b(ARG_MRK,1))      \
-    a(gaussian_blur,   b(ARG_INT,0))                    \
-    a(sharpen                    )                      \
-    a(collate                    )                      \
-    a(next                       )                      \
-    a(prev                       )                      \
-    a(dup                        )                      \
+#include "mark.h"
 
 int import(char * fn);
 
@@ -47,5 +22,8 @@ int next();
 
 int dup();
 
+int swap();
+
 int crop(Mark tl, Mark br);
 
+int line(Mark s, Mark e, P_RGBA8 p);

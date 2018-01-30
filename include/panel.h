@@ -42,6 +42,8 @@ void panel_free(Panel * panel);
 
 //int get_pixel(Panel * panel, int x, int y);
 
+P_RGBA8 overlay(P_RGBA8 top, P_RGBA8 bot);
+
 /*
  * Draws the contents of panel onto data. 
  * If necessary, will expand width and height, and reallocate data to match. 

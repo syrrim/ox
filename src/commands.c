@@ -2,7 +2,6 @@
 #include <stdio.h>
 
 #include "ox.h"
-
 #include "commands.h"
 
 #include "lodepng.h"
@@ -10,6 +9,7 @@
 #include "tiny_jpeg.h"
 
 #include "stb_image.h"
+
 
 int import(char * fn){
     int w, h, chan;
@@ -186,6 +186,17 @@ int dup(){
     return 0;
 }
 
+int swap(){
+    if(selection <= 0){
+        fprintf(stderr, "nothing to swap with\n");
+        return 1;
+    }
+    Panel p = panels[selection];
+    panels[selection] = panels[selection-1];
+    panels[selection-1] = p;
+    return 0;
+}
+
 int crop(Mark tl, Mark br){
     int w = br.x - tl.x,
         h = br.y - tl.y;
@@ -203,5 +214,23 @@ int crop(Mark tl, Mark br){
     s->w = w;
     s->h = h;
     printf("%dx%d\n", w, h);
+    return 0;
+}
+
+#define ABS(a) (a>0?a:-a)
+
+int line(Mark srt, Mark end, P_RGBA8 p){
+    S_RGBA8 * s = panels[selection].data;
+    int w = end.x - srt.x;
+    int h = end.y - srt.y;
+    int pix;// the total number of pixels we should place
+    //pix = ABS(w) + ABS(h); 
+    //pix = sqrt(w*w + h*h);
+    pix = MAX(ABS(w), ABS(h));
+    for(int i=0; i<pix; i++){
+        int x = srt.x + w * i / pix;
+        int y = srt.y + h * i / pix;
+        s->pixels[y*s->w+x] = overlay(p, s->pixels[y*s->w+x]);
+    }
     return 0;
 }

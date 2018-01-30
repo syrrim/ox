@@ -36,35 +36,45 @@ uint32_t get32(Panel * panel, int x, int y){
 }
 */
 
+P_RGBA8 overlay(P_RGBA8 top, P_RGBA8 bot){
+    if(top.a==255)return top;
+    P_RGBA8 fin;
+    uint8_t a = MIN(top.a + bot.a, 255);
+#define CPY(c)\
+    fin.c = top.c * top.a / (a?:1) + bot.c * (a - top.a) / (a?:1)
+    CPY(r);
+    CPY(g);
+    CPY(b);
+#undef CPY
+    fin.a = top.a + bot.a * (255 - top.a) / 255;
+    return fin;
+}
+
 int combine(Panel * panel, P_RGBA8 ** data, int * width, int * height){
     switch(panel->type){
     case RGBA8:{
         S_RGBA8 * s = panel->data;
         P_RGBA8 * buf = *data;
-        int w = MAX(*width, s->w),
-            h = MAX(*height, s->h);
+        int w = MAX(*width, s->w);
+        int h = MAX(*height, s->h);
+        printf("alloc:%dx%d\n", w, h);
         if(*width != w || *height != h){
             buf = malloc(w*h * sizeof(P_RGBA8));
             if(!buf)return 1;
         }
         for(int y=0; y<h; y++) for(int x=0; x<w; x++){
             P_RGBA8 p1, p2;
-            if(y<s->h && x<s->w)
+            if(y<s->h && x<s->w){
                 p1 = s->pixels[y*s->w + x];
-            else
+            }else{
                 p1 = (P_RGBA8){.a=0};
-            if(y<*width && x<*height)
+            }
+            if((x<(*width)) && (y<(*height))){
                 p2 = (*data)[y*(*width) + x];
-            else
+            }else{
                 p2 = (P_RGBA8){.a=0};
-            uint8_t a_f = MIN(p1.a + p2.a, 255);
-#define CPY(c)\
-            buf[y*w+x].c = p1.c * p1.a / (a_f?:1) + p2.c * (a_f - p1.a) / (a_f?:1)
-            CPY(r);
-            CPY(g);
-            CPY(b);
-#undef CPY
-            buf[y*w+x].a = p1.a + p2.a * (255 - p1.a) / 255;
+            }
+            buf[y*w+x] = overlay(p1, p2);
         }
         if(*width != w || *height != h){
             free(*data);
@@ -151,7 +161,7 @@ int apply_kernel(Panel * p, double * cells, int rw, int rh){
         if(!new){fprintf(stderr, "OOM\n");return 1;}                                             //TODO: in place blur 
         int w = s->w, h = s->h;
         for(int y=0; y<h; y++) {
-            if(!(y%100))fprintf(stderr,"line %d\n", y);
+            if(!(y%(5000/(rw?:1)/(rh?:1))))fprintf(stderr,"line %d\n", y);
             for(int x=0; x<w; x++){
             double val[4] = {0.0,0.0,0.0,0.0};
             P_RGBA8 sel;
