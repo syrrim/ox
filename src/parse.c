@@ -5,14 +5,26 @@
 #include "ox.h"
 #include "parse.h"
 #include "commands.h"
+#include "text.h"
 
 #define EAT_SPC(str) while(*str == ' ')str++
 char * next_word(char ** buf){
     char * start = *buf;
-    while(**buf != ' ' && **buf != '\0')(*buf)++;
+    if(**buf == '"'){
+        start++;
+        (*buf)++;
+        while(**buf != '"' && **buf != '\0')(*buf)++;
+    }else{
+        while(**buf != ' ' && **buf != '\0')(*buf)++;
+    }
     if(**buf)*((*buf)++) = '\0';
     EAT_SPC((*buf));
     return start;
+}
+
+int next_text(char ** buf, char ** text){
+    *text = next_word(buf);
+    return 0;
 }
 
 int next_fn(char ** buf, char ** fn){
@@ -51,11 +63,12 @@ int next_float(char ** buf, double * val){
     return 0;
 }
 
-int next_color(char ** buf, P_RGBA8 * p){
+int next_color(char ** buf, Pixel * p){
 #define DIG(ch, val)\
     if('0'<=ch&&ch<='9')val|=ch-'0';\
-    if('A'<=ch&&ch<='F')val|=ch-'A'+10;\
-    if('a'<=ch&&ch<='f')val|=ch-'a'+10
+    else if('A'<=ch&&ch<='F')val|=ch-'A'+10;\
+    else if('a'<=ch&&ch<='f')val|=ch-'a'+10;\
+    else ERR("invalid color char %c\n", ch)
     char * n = next_word(buf);
     int l = strlen(n);
 #define CPY(c, i1, i2)\
@@ -161,13 +174,13 @@ int run_comm(char * inp){
             if(*inp){
                 ARG(mark, br);
             }else
-                br = (Mark){.x=((S_RGBA8 * )panels[selection].data)->w, 
-                            .y=((S_RGBA8 * )panels[selection].data)->h};
+                br = (Mark){.x=get_width(&panels[selection]), 
+                            .y=get_height(&panels[selection])};
         }else{
             printf("no mark\n");
             tl = (Mark){.x=0, .y=0};
-            br = (Mark){.x=((S_RGBA8 * )panels[selection].data)->w, 
-                        .y=((S_RGBA8 * )panels[selection].data)->h};
+            br = (Mark){.x=get_width(&panels[selection]), 
+                        .y=get_height(&panels[selection])};
         }
         if(*inp)goto trail;
         return crop(tl, br);
@@ -186,15 +199,31 @@ int run_comm(char * inp){
         }
     }else if(strcmp("line", comm) == 0){
         Mark s, e;
-        P_RGBA8 p;
+        Pixel p;
         ARG(mark, s);
         ARG(mark, e);
         if(*inp){
             ARG(color, p);
         }else
-            p = (P_RGBA8){.a=255};
+            p = (Pixel){.a=255};
         if(*inp)goto trail;
         return line(s, e, p);
+    }else if(strcmp("font", comm) == 0){
+        char * id;
+        char * fn;
+        ARG(identifier, id);
+        ARG(fn, fn);
+        if(*inp)goto trail;
+        return load_font(id, fn);
+    }else if(strcmp("text", comm) == 0){
+        char * text;
+        char * font;
+        Mark mark;
+        ARG(text, text);
+        ARG(identifier, font);
+        ARG(mark, mark);
+        if(*inp)goto trail;
+        return draw_text(text, font, mark, 50, (Pixel){.r=255,.g=255,.b=255,.a=255});
     }
     ERR("unrecognized command %s\n", comm);
 

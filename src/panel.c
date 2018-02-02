@@ -7,10 +7,6 @@ void panel_free(Panel * panel){
         free(s->pixels);
         free(s);
         break;
-    }case GREYA:{
-        S_GREYA * s = panel->data;
-        free(s->pixels);
-        free(s);
     }case MATX:{
         S_MATX * s = panel->data;
         panel_free(s->panel);
@@ -19,26 +15,52 @@ void panel_free(Panel * panel){
     }
 }
 
-/*
-uint32_t get32(Panel * panel, int x, int y){
+Pixel get_pixel(Panel * panel, int x, int y){
     switch(panel->type){
     case RGBA8:{
         S_RGBA8 * s = panel->data;
-        return *(int *)(s->pixels + y*s->w + x); 
-    }case GREYA:{
-        S_GREYA * s = panel->data;
-        return *(int *)(s->pixels + y*s->w + x); 
+        return s->pixels[y*s->w + x]; 
     }case MATX:{
         S_MATX * s = panel->data;
-        return get32(s->panel, s->inv[0]*x+s->inv[1]*y, s->inv[2]*x+s->inv[3]*y);
+        return get_pixel(s->panel, s->inv[0]*x+s->inv[1]*y, s->inv[2]*x+s->inv[3]*y);
     }}
-    return 1;
+    return (Pixel){.a=0};
 }
-*/
 
-P_RGBA8 overlay(P_RGBA8 top, P_RGBA8 bot){
+int get_width(Panel * panel){
+    switch(panel->type){
+    case RGBA8:{
+        S_RGBA8 * s = panel->data;
+        return s->w;
+    }case MATX:return 0;}
+    return -1;
+}
+
+int get_height(Panel * panel){
+    switch(panel->type){
+    case RGBA8:{
+        S_RGBA8 * s = panel->data;
+        return s->h;
+    }case MATX:return 0;}
+    return -1;
+}
+
+void set_pixel(Panel * panel, int x, int y, Pixel pix){
+    switch(panel->type){
+    case RGBA8:{
+        S_RGBA8 * s = panel->data;
+        s->pixels[y*s->w + x] = pix;
+        break;
+    }case MATX:{
+        S_MATX * s = panel->data;
+        set_pixel(s->panel, s->inv[0]*x+s->inv[1]*y, s->inv[2]*x+s->inv[3]*y, pix);
+        break;
+    }}
+}
+
+Pixel overlay(Pixel top, Pixel bot){
     if(top.a==255)return top;
-    P_RGBA8 fin;
+    Pixel fin;
     uint8_t a = MIN(top.a + bot.a, 255);
 #define CPY(c)\
     fin.c = top.c * top.a / (a?:1) + bot.c * (a - top.a) / (a?:1)
@@ -50,42 +72,46 @@ P_RGBA8 overlay(P_RGBA8 top, P_RGBA8 bot){
     return fin;
 }
 
-int combine(Panel * panel, P_RGBA8 ** data, int * width, int * height){
+void overlay_pixel(Panel * panel, int x, int y, Pixel pix){
+    Pixel prev = get_pixel(panel, x, y);
+    set_pixel(panel, x, y, overlay(pix, prev));
+}
+
+int combine(Panel * panel, S_RGBA8 * old){
     switch(panel->type){
     case RGBA8:{
         S_RGBA8 * s = panel->data;
-        P_RGBA8 * buf = *data;
-        int w = MAX(*width, s->w);
-        int h = MAX(*height, s->h);
-        printf("alloc:%dx%d\n", w, h);
-        if(*width != w || *height != h){
-            buf = malloc(w*h * sizeof(P_RGBA8));
+        Pixel * buf = old->pixels;
+        int x = MIN(old->x, s->x);
+        int y = MIN(old->y, s->y);
+        int w = MAX(old->w+old->x-x, s->w+s->x-x);
+        int h = MAX(old->h+old->y-y, s->h+s->y-y);
+        if(old->w != w || old->h != h){
+            buf = malloc(w*h * sizeof(Pixel));
             if(!buf)return 1;
         }
-        for(int y=0; y<h; y++) for(int x=0; x<w; x++){
-            P_RGBA8 p1, p2;
-            if(y<s->h && x<s->w){
-                p1 = s->pixels[y*s->w + x];
+        for(int j=0; j<h; j++) for(int i=0; i<w; i++){
+            Pixel p1, p2;
+            if((s->y-y)<=j&&j<s->h+(s->y-y) && (s->x-x)<=i&&i<s->w+(s->x-x)){
+                p1 = s->pixels[(j-s->y+y)*s->w + (i-s->x+x)];
             }else{
-                p1 = (P_RGBA8){.a=0};
+                p1 = (Pixel){.a=0};
             }
-            if((x<(*width)) && (y<(*height))){
-                p2 = (*data)[y*(*width) + x];
+            if((old->y-y)<=j&&j<old->h && (old->x-x)<=i&&i<old->w){
+                p2 = old->pixels[(j-old->y+y)*old->w + (i-old->x+x)];
             }else{
-                p2 = (P_RGBA8){.a=0};
+                p2 = (Pixel){.a=0};
             }
-            buf[y*w+x] = overlay(p1, p2);
+            buf[j*w+i] = overlay(p1, p2);
         }
-        if(*width != w || *height != h){
-            free(*data);
-            *data = buf;
-            *width = w;
-            *height = h;
+        if(old->w != w || old->h != h){
+            free(old->pixels);
+            old->pixels = buf;
+            old->w = w;
+            old->h = h;
         }
         return 0;
     }
-    case GREYA:
-        return 1;
     case MATX:
         return 1;
     }
@@ -102,7 +128,7 @@ int transform(Panel * p, int x, int y, double * mat){ // mat should have 4 entri
     switch(p->type){
     case RGBA8:{
         S_RGBA8 * s = p->data;
-        P_RGBA8 * old = s->pixels;
+        Pixel * old = s->pixels;
         int w = s->w, h = s->h;
         int blx = APPX(0-x, 0-y),
             bly = APPY(0-x, 0-y),
@@ -118,7 +144,7 @@ int transform(Panel * p, int x, int y, double * mat){ // mat should have 4 entri
             ty = MAX(MAX(MAX(bly, bry), tly), try);
         int new_w = rx - lx,
             new_h = ty - by;
-        P_RGBA8 * new = calloc(new_w * new_h, sizeof(P_RGBA8)); 
+        Pixel * new = calloc(new_w * new_h, sizeof(Pixel)); 
         if(!new) return 1;
         for(int j=0; j<new_h; j++) 
             for(int i=0; i<new_w; i++){
@@ -130,9 +156,6 @@ int transform(Panel * p, int x, int y, double * mat){ // mat should have 4 entri
         s->pixels = new;
         s->w = new_w;
         s->h = new_h;
-        return 0;
-    }case GREYA:{
-        
         return 0;
     }case MATX:{
         S_MATX * s = p->data;
@@ -149,22 +172,22 @@ int transform(Panel * p, int x, int y, double * mat){ // mat should have 4 entri
 #undef APPX
 }
 
-
 int apply_kernel(Panel * p, double * cells, int rw, int rh){ 
     int dw = rw*2+1;
     int dh = rh*2+1;
     switch(p->type){
     case RGBA8:{
         S_RGBA8 * s = p->data;
-        P_RGBA8 * old = s->pixels;
-        P_RGBA8 * new = malloc(s->w * s->h * sizeof(P_RGBA8));
-        if(!new){fprintf(stderr, "OOM\n");return 1;}                                             //TODO: in place blur 
+        Pixel * old = s->pixels;
+        Pixel * new = malloc(s->w * s->h * sizeof(Pixel));//TODO: in place blur 
+        if(!new)ERR("OOM\n");
         int w = s->w, h = s->h;
         for(int y=0; y<h; y++) {
-            if(!(y%(5000/(rw?:1)/(rh?:1))))fprintf(stderr,"line %d\n", y);
+            fprintf(stderr,"line %d    \r", y);
+            fflush(stderr);
             for(int x=0; x<w; x++){
             double val[4] = {0.0,0.0,0.0,0.0};
-            P_RGBA8 sel;
+            Pixel sel;
             for(int j=0; j<dh; j++) for(int i=0; i<dw; i++){
                 double mult = cells[j * dw + i];
                 if(!mult)continue;
@@ -177,13 +200,11 @@ int apply_kernel(Panel * p, double * cells, int rw, int rh){
                 val[3] += sel.a * mult;
             }
             //printf("a: %hhu, %f\n", (char)val[3], val[3]);
-            new[y*w + x] = (P_RGBA8){.r=val[0], .g=val[1], .b=val[2], .a=val[3]};
+            new[y*w + x] = (Pixel){.r=val[0], .g=val[1], .b=val[2], .a=val[3]};
         }}
         free(old);
         s->pixels = new;
         return 0;
-    }case GREYA:{
-        return 1;
     }case MATX:
         return 1;
     }

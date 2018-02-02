@@ -4,7 +4,6 @@ extern "C" {
 
 typedef enum PanelType {
     RGBA8,
-    GREYA,
     MATX
 } PanelType;
 
@@ -15,21 +14,13 @@ typedef struct {
 
 typedef struct {
     uint8_t r, g, b, a;
-} P_RGBA8;
+} Pixel;
 
 typedef struct {
     int w, h;
-    P_RGBA8 * pixels;
+    int x, y;
+    Pixel * pixels;
 } S_RGBA8;
-
-typedef struct {
-    uint16_t g, a;
-} P_GREYA;
-
-typedef struct {
-    int w, h;
-    P_GREYA * pixels;
-} S_GREYA;
 
 typedef struct {
     double inv[4];
@@ -40,16 +31,24 @@ void panel_free(Panel * panel);
 
 //int create(Pixel * data, int width, int height, PanelType type);
 
-//int get_pixel(Panel * panel, int x, int y);
+Pixel get_pixel(Panel * panel, int x, int y);
 
-P_RGBA8 overlay(P_RGBA8 top, P_RGBA8 bot);
+void set_pixel(Panel * panel, int x, int y, Pixel pix);
+
+int get_width(Panel * panel);
+int get_height(Panel * panel);
+
+Pixel overlay(Pixel top, Pixel bot);
+
+void overlay_pixel(Panel * panel, int x, int y, Pixel pix);
 
 /*
- * Draws the contents of panel onto data. 
- * If necessary, will expand width and height, and reallocate data to match. 
+ * Draws the contents of panel onto old. 
+ * If necessary, will expand width and height, and reallocate old->pixels to match. 
  * Returns non-zero on error.
  */
-int combine(Panel * panel, P_RGBA8 ** data, int * width, int * height);
+int combine(Panel * panel, S_RGBA8 * old);
+
 
 /*
  * Transforms the pixels of p about x,y according to mat.

@@ -17,11 +17,11 @@ int import(char * fn){
     uint8_t * data = stbi_load(fn, &w, &h, &chan, 4);
     if(!data || !w || !h){
         //fprintf(stderr, "failed to import (%s)\n", stbi__g_failure_reason);
-        return 1;
+        ERR("failed to import\n");
     }
 
     S_RGBA8 * s = malloc(sizeof(S_RGBA8));
-    *s = (S_RGBA8){.w=w, .h=h, .pixels=(P_RGBA8 *)data};
+    *s = (S_RGBA8){.w=w, .h=h, .pixels=(Pixel *)data};
     panels[panel_head++] = (Panel){RGBA8, s};
     selection++;
     return 0;
@@ -33,8 +33,7 @@ int import(char * fn){
 int export(char * fn){
     char ext[10];
     int f=1, e=-1;
-    P_RGBA8 * data = NULL;
-    int w=0, h=0;
+    S_RGBA8 s = {.pixels=NULL};
 
     while(fn[f]){
         if(fn[f-1] == '.') e = 0;
@@ -45,13 +44,15 @@ int export(char * fn){
     ext[e] = '\0';
     
     for(int i = 0; i < panel_head; i++){
-        combine(&panels[i], &data, &w, &h);
+        combine(&panels[i], &s);
     }
+    int w = s.w;
+    int h = s.h;
+    Pixel * data = s.pixels;
     if(strcmp(ext, "png") == 0){
         int err;
         if((err = lodepng_encode32_file(fn, (uint8_t * )data, w, h))){
-            printf("error encoding\n");
-            return 1;
+            ERR("error encoding\n");
         };
     }else if(strcmp(ext, "jpg") == 0){
         tje_encode_to_file(fn, w, h, 4, (uint8_t *)data);
@@ -68,7 +69,7 @@ int export(char * fn){
         putc(h>>8, f);
         putc(h, f);
         for(int y=0; y<h; y++)for(int x=0; x<w; x++){
-            P_RGBA8 p = data[y*w + x];
+            Pixel p = data[y*w + x];
             putc(p.r,f);
             putc(p.r,f);
             putc(p.g,f);
@@ -79,8 +80,6 @@ int export(char * fn){
             putc(p.a,f);
         }
     }
-
-    printf("done\n");
     free(data);
     return 0;
 }
@@ -97,7 +96,6 @@ int scale(double factor){
 }
 
 int blur(int r, int passes){
-    printf("r:%d, p:%d\n", r, passes);
     int d = (2*r+1);
     double * kernel = malloc(d * sizeof(double));
     for(int i = 0; i < d; i++){
@@ -127,7 +125,6 @@ int gaussian_blur(int r){
     double sum = 0;
     for(int i=0; i<d; i++){
         double val = exp(-pow(i-r, 2)/(2*r*r) * 16);
-        printf("val: %f\n", val);
         sum += val;
         kernel[i] = val;
     }
@@ -144,9 +141,8 @@ int gaussian_blur(int r){
 int collate(){
     S_RGBA8 * s = calloc(sizeof(S_RGBA8), 1);
     for(int i = 0; i < panel_head; i++){
-        if(combine(&panels[i], &s->pixels, &s->w, &s->h)){
-            fprintf(stderr, "could not collate\n"); 
-            return 1;
+        if(combine(&panels[i], s)){
+            ERR("could not collate\n"); 
         }
         panel_free(&panels[i]);
     }
@@ -162,8 +158,7 @@ int prev(){
         selection--;
         return 0;
     }
-    fprintf(stderr, "already on first item\n");
-    return 1;
+    ERR("already on first item\n");
 }
 
 int next(){
@@ -171,13 +166,12 @@ int next(){
         selection++;
         return 0;
     }
-    fprintf(stderr, "already on last item\n");
-    return 1;
+    ERR("already on last item\n");
 }
 
 int dup(){
     S_RGBA8 * s = calloc(1, sizeof(S_RGBA8));
-    if(combine(&panels[selection], &s->pixels, &s->w, &s->h))return 1;
+    if(combine(&panels[selection], s))return 1;
     for(int i = panel_head - 1; i > selection; i--){
         panels[i+1] = panels[i];
     }
@@ -188,8 +182,7 @@ int dup(){
 
 int swap(){
     if(selection <= 0){
-        fprintf(stderr, "nothing to swap with\n");
-        return 1;
+        ERR("nothing to swap with\n");
     }
     Panel p = panels[selection];
     panels[selection] = panels[selection-1];
@@ -201,26 +194,26 @@ int crop(Mark tl, Mark br){
     int w = br.x - tl.x,
         h = br.y - tl.y;
     if(w < 0 || h < 0){
-        fprintf(stderr, "br above or to the left of tl \n");
-        return 1;
+        ERR("br above or to the left of tl \n");
     }
     S_RGBA8 * s = panels[selection].data;
-    P_RGBA8 * old = s->pixels;
-    P_RGBA8 * new = malloc(w * h * sizeof(P_RGBA8));
+    printf("%f %f\n", ((double)w)/s->w, ((double)h)/s->h);
+    Pixel * old = s->pixels;
+    Pixel * new = malloc(w * h * sizeof(Pixel));
     for(int y=0; y<h; y++) for(int x=0; x<w; x++)
         new[y*w + x] = old[(y+tl.y)*s->w + x+tl.x];
     free(old);
     s->pixels = new;
     s->w = w;
     s->h = h;
-    printf("%dx%d\n", w, h);
+    s->x += tl.x;
+    s->y += tl.y;
     return 0;
 }
 
 #define ABS(a) (a>0?a:-a)
 
-int line(Mark srt, Mark end, P_RGBA8 p){
-    S_RGBA8 * s = panels[selection].data;
+int line(Mark srt, Mark end, Pixel p){
     int w = end.x - srt.x;
     int h = end.y - srt.y;
     int pix;// the total number of pixels we should place
@@ -230,7 +223,7 @@ int line(Mark srt, Mark end, P_RGBA8 p){
     for(int i=0; i<pix; i++){
         int x = srt.x + w * i / pix;
         int y = srt.y + h * i / pix;
-        s->pixels[y*s->w+x] = overlay(p, s->pixels[y*s->w+x]);
+        overlay_pixel(&panels[selection], x, y, p);
     }
     return 0;
 }

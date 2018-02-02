@@ -10,7 +10,12 @@ typedef struct NamedMark {
 
 NamedMark * named_marks = NULL;
 
+char * symbolic_marks[] = {"w", "h", NULL};
+
 void mark_set(char * name, Mark mark){
+    for(int i=0; symbolic_marks[i]; i++)
+        if(strcmp(symbolic_marks[i], name)==0) return;
+
     int n = strlen(name) + 1; // include the \0
     char * new_name = malloc(n * sizeof(char));
     strncpy(new_name, name, n);
@@ -26,22 +31,24 @@ void mark_set(char * name, Mark mark){
 }
 
 int mark_get(char * name, Mark * mark){
+    for(int i=0; symbolic_marks[i]; i++)
+        if(strcmp(symbolic_marks[i], name)==0) switch(i){
+        case 0://w
+            *mark = (Mark){.x=get_width(&panels[selection])};
+            return 0;
+        case 1://h
+            *mark = (Mark){.y=get_height(&panels[selection])};
+            return 0;
+        }
+
     NamedMark * nm;
     HASH_FIND_STR(named_marks, name, nm);
     if(nm){
         *mark = nm->mark;
-        printf("%s %dx%d\n", name, mark->x, mark->y);
         return 0;
     }
     ERR("unrecognized mark %s\n", name);
 }
-
-struct Tok{
-    enum{TKSYM, TKID, TKNUM}type;
-    union{
-        char sym;
-        };
-};
 
 int sum(char ** buf, Mark * mark);
 

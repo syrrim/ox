@@ -26,4 +26,4 @@ int swap();
 
 int crop(Mark tl, Mark br);
 
-int line(Mark s, Mark e, P_RGBA8 p);
+int line(Mark s, Mark e, Pixel p);
