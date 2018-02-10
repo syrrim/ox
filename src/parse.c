@@ -7,17 +7,17 @@
 #include "commands.h"
 #include "text.h"
 
-#define EAT_SPC(str) while(*str == ' ')str++
 char * next_word(char ** buf){
     char * start = *buf;
     if(**buf == '"'){
         start++;
         (*buf)++;
-        while(**buf != '"' && **buf != '\0')(*buf)++;
+        while(**buf != '"' && !ISEOL(**buf))(*buf)++;
     }else{
-        while(**buf != ' ' && **buf != '\0')(*buf)++;
+        while(**buf != ' ' && !ISEOL(**buf))(*buf)++;
     }
-    if(**buf)*((*buf)++) = '\0';
+    if(!ISEOL(**buf))*((*buf)++) = '\0';
+    else **buf = '\0';
     EAT_SPC((*buf));
     return start;
 }
@@ -114,83 +114,87 @@ int run_comm(char * inp){
         return 1
     EAT_SPC(inp);
     char * comm = next_word(&inp);
+    if(!*comm)return 0;
     if(strcmp("import", comm) == 0){
         char * fn;
         ARG(fn, fn);
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return import(fn);
     }else if(strcmp("export", comm) == 0){
         char * fn;
         ARG(fn, fn);
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return export(fn);
     }else if(strcmp("rotate", comm) == 0){
         double angle;
         ARG(float, angle);
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return rotate(angle);
     }else if(strcmp("scale", comm) == 0){
         double factor;
         ARG(float, factor);
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return scale(factor);
     }else if(strcmp("blur", comm) == 0){
         int rad;
         int passes;
         ARG(int, rad);
-        if(*inp){
+        if(!ISEOL(*inp)){
             ARG(int, passes);
         }else
             passes = 1;
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return blur(rad, passes);
     }else if(strcmp("gaussian_blur", comm) == 0){
         int rad;
         ARG(int, rad);
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return gaussian_blur(rad);
     }else if(strcmp("sharpen", comm) == 0){
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return sharpen();
+    }else if(strcmp("join", comm) == 0){
+        if(!ISEOL(*inp))goto trail;
+        return join();
     }else if(strcmp("collate", comm) == 0){
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return collate();
     }else if(strcmp("prev", comm) == 0){
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return prev();
     }else if(strcmp("next", comm) == 0){
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return next();
     }else if(strcmp("dup", comm) == 0){
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return dup();
     }else if(strcmp("swap", comm) == 0){
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return swap();
     }else if(strcmp("crop", comm) == 0){
         Mark tl, br;
-        if(*inp){
+        if(!ISEOL(*inp)){
             ARG(mark, tl);
-            if(*inp){
+            if(!ISEOL(*inp)){
                 ARG(mark, br);
             }else
-                br = (Mark){.x=get_width(&panels[selection]), 
-                            .y=get_height(&panels[selection])};
+                br = (Mark){.x=selection->pnl->w,
+                            .y=selection->pnl->h};
         }else{
             printf("no mark\n");
             tl = (Mark){.x=0, .y=0};
-            br = (Mark){.x=get_width(&panels[selection]), 
-                        .y=get_height(&panels[selection])};
+            br = (Mark){.x=selection->pnl->w,
+                        .y=selection->pnl->h};
         }
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return crop(tl, br);
     }else if(strcmp("mark", comm) == 0){
         Mark mark;
         ARG(mark, mark);
-        if(*inp){
+        if(!ISEOL(*inp)){
             char * name;
             ARG(identifier, name);
-            if(*inp)goto trail;
+            if(!ISEOL(*inp))goto trail;
             mark_set(name, mark);
             return 0;
         }else{
@@ -202,18 +206,25 @@ int run_comm(char * inp){
         Pixel p;
         ARG(mark, s);
         ARG(mark, e);
-        if(*inp){
+        if(!ISEOL(*inp)){
             ARG(color, p);
         }else
             p = (Pixel){.a=255};
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return line(s, e, p);
+    }else if(strcmp("fill", comm) == 0){
+        Mark cen;
+        Pixel col;
+        ARG(mark, cen);
+        ARG(color, col);
+        if(!ISEOL(*inp))goto trail;
+        return fill(cen, col);
     }else if(strcmp("font", comm) == 0){
         char * id;
         char * fn;
         ARG(identifier, id);
         ARG(fn, fn);
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return load_font(id, fn);
     }else if(strcmp("text", comm) == 0){
         char * text;
@@ -222,8 +233,15 @@ int run_comm(char * inp){
         ARG(text, text);
         ARG(identifier, font);
         ARG(mark, mark);
-        if(*inp)goto trail;
+        if(!ISEOL(*inp))goto trail;
         return draw_text(text, font, mark, 50, (Pixel){.r=255,.g=255,.b=255,.a=255});
+    }else if(strcmp("noise", comm) == 0){
+        char * name;
+        Mark size;
+        ARG(text, name);
+        ARG(mark, size);
+        if(!ISEOL(*inp))goto trail;
+        return noise(name, size);
     }
     ERR("unrecognized command %s\n", comm);
 

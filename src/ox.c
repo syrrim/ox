@@ -6,9 +6,40 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
-Panel panels[PNLSIZ];
-int panel_head = 0;
-int selection = -1;
+Frame * selection = NULL;
+
+void free_panel(Panel * pnl){
+    free(pnl->pixels);
+    free(pnl);
+}
+
+void free_frame(Frame * frame){
+    free_panel(frame->pnl);
+    free(frame);
+}
+
+Frame * ins(Frame * prev, Panel * pnl){
+    Frame * cur = malloc(sizeof(Frame));
+    cur->pnl = pnl;
+    cur->prev = prev;
+    if(prev){
+        Frame * n = prev->next;
+        prev->next = cur;
+        cur->next = n;
+    }else{
+        cur->next = NULL;
+    }
+    return cur;
+}
+
+Frame * rem(Frame * frame){
+    Frame * p = frame->prev;
+    Frame * n = frame->next;
+    if(p) p->next = n;
+    if(n) n->prev = p;
+    free_frame(frame);
+    return p;
+}
 
 int interactive = 1;
 

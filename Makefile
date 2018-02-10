@@ -3,7 +3,7 @@ CCFLAGS=-Iinclude/ -Wall -Werror
 CC=cc ${CCFLAGS}
 
 ox: bin/*.o include/*.h src/*
-	$(CC) -lm -lreadline bin/*.o src/*.c -o ox
+	$(CC) -g -lm -lreadline bin/*.o src/*.c -o ox
 
 bin/lodepng.o: lib/lodepng.c 
 	$(CC) -c lib/lodepng.c -o bin/lodepng.o

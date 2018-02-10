@@ -14,6 +14,8 @@ int gaussian_blur(int r);
 
 int sharpen();
 
+int join();
+
 int collate();
 
 int prev();
@@ -27,3 +29,7 @@ int swap();
 int crop(Mark tl, Mark br);
 
 int line(Mark s, Mark e, Pixel p);
+
+int fill(Mark cnt, Pixel c);
+
+int noise(char *, Mark);

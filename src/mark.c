@@ -34,10 +34,10 @@ int mark_get(char * name, Mark * mark){
     for(int i=0; symbolic_marks[i]; i++)
         if(strcmp(symbolic_marks[i], name)==0) switch(i){
         case 0://w
-            *mark = (Mark){.x=get_width(&panels[selection])};
+            *mark = (Mark){.x=selection->pnl->w};
             return 0;
         case 1://h
-            *mark = (Mark){.y=get_height(&panels[selection])};
+            *mark = (Mark){.y=selection->pnl->h};
             return 0;
         }
 
@@ -51,8 +51,6 @@ int mark_get(char * name, Mark * mark){
 }
 
 int sum(char ** buf, Mark * mark);
-
-#define EAT_SPC(str) while(*(str) == ' ')(str)++
 
 int prod(char ** buf, Mark * mark){
     *mark = (Mark){1,1};
@@ -73,11 +71,13 @@ int prod(char ** buf, Mark * mark){
             next = (Mark){num,num};
             *buf = end;
         }else if(**buf == '('){
+            (*buf)++;
             EAT_SPC(*buf);
-            if(sum(buf, &next))return 1;
+            if(next_mark(buf, &next))return 1;
             if(**buf != ')'){
                 ERR("unmatched paren: %s\n", *buf);
             }
+            (*buf)++;
         }else{
             ERR("invalid mark: %s\n", *buf);
         }
@@ -106,7 +106,13 @@ int sum(char ** buf, Mark * mark){
     Mark next;
     int dir = 0;
     while(1){
-        if(prod(buf, &next))return 1;
+        if(**buf=='-'){
+            (*buf)++;
+            if(prod(buf, &next))return 1;
+
+            next.x *= -1;
+            next.y *= -1;
+        }else if(prod(buf, &next))return 1;
         if(dir>=0){
             mark->x += next.x;
             mark->y += next.y;

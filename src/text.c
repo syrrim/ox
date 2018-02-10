@@ -1,7 +1,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include "ox.h"
-#include "mark.h"
+#include "panel.h"
 
 #include "uthash.h"
 
@@ -93,7 +93,7 @@ int draw_text(char * text, char * font_name, Mark pos, int size, Pixel c){
 
         uint8_t * data = stbtt_GetCodepointBitmap(font, scale, scale, cp, &w, &h, &xoff, &yoff);
         for(int y=0; y<h; y++) for(int x=0; x<w; x++)
-            overlay_pixel(&panels[selection], xpos+x+xoff+pos.x, y+yoff+pos.y, 
+            overlay_pixel(selection->pnl, xpos+x+xoff+pos.x, y+yoff+pos.y, 
                         (Pixel){.r=c.r,.g=c.g,.b=c.b, .a=c.a*data[y*w+x]/255});
 	xpos += (advance * scale);
 	if(*text){
