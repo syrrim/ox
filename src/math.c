@@ -4,6 +4,17 @@
 #include <inttypes.h>
 #include "new.h"
 
+#ifndef EPS
+# define EPS 1e-12
+#endif
+
+#ifndef ABS
+# define ABS(a) ((a)>0?(a):-(a))
+#endif
+
+#define LEN(a) (sizeof(a)/sizeof(*(a)))
+#define SWAP(x, y) do{typeof(x) z = x; x=y; y=z;}while(0)
+
 enum ops {ADD, SUB, MUL, DIV, MOD, POW, APP, EQ, LT, GT, LPAR, RPAR};
 typedef struct {
     enum {KNUM, KSYM, KVAR, KEND, KERR} type;
@@ -211,6 +222,7 @@ void print_expr(Expr * expr, char ** dict){
     sprint_expr(buf, expr, dict);
     printf("%s\n", buf);
 }
+void print(Expr * expr);
 
 Expr * deep_copy(Expr * expr){
     Expr * new = malloc(sizeof(Expr));
@@ -227,33 +239,7 @@ Expr * deep_copy(Expr * expr){
     }
     return new;
 }
-
-#ifndef EPS
-# define EPS 1e-12
-#endif
-#ifndef ABS
-# define ABS(a) ((a)>0?(a):-(a))
-#endif
-int eq(Expr * a, Expr * b){
-    if(a->type != b->type) return 0;
-    switch(a->type){
-        case NUM: return ABS(a->f - b->f) <= EPS;
-        case VAR: return a->i == b->i;
-        case BINOP: return a->op == b->op && eq(a->arg1, b->arg1) && eq(a->arg2, b->arg2);
-    }
-    return 0;
-}
-
-unsigned int hash(Expr * expr){
-    switch(expr->type){
-        case NUM: return expr->f*1000;
-        case VAR: return expr->i+1;
-        case BINOP: {
-            return expr->op*1298472149u + hash(expr->arg1)*874212412 + hash(expr->arg2)*32478187;
-        }
-    }
-}
-
+    
 // FUNCTIONS
 #define N 100
 double taylor(double x, double * c, int n){
@@ -329,7 +315,19 @@ double exp(double a){
     }
     return taylor(a, c, N);
 }
+double fast_pow(double b, int e){
+    if(!e)return 1;
+    if(e==1)return b;
+    int c = fast_pow(b, e/2);
+    if(e%2){
+        return c*c*b;
+    }else{
+        return c*c;
+    }
+}
 double pow(double b, double e){
+    if(ABS(e-(int)e)<EPS)
+        return fast_pow(b, e);
     return exp(ln(b)*e);
 }
 #undef N
@@ -355,26 +353,42 @@ double eval(Expr * expr, double * subs){
     return -1;
 }
 
-void print(Expr * expr);
+int eq(Expr * a, Expr * b){
+    if(a->type != b->type) return 0;
+    switch(a->type){
+        case NUM: return ABS(a->f - b->f) <= EPS;
+        case VAR: return a->i == b->i;
+        case BINOP: return a->op == b->op && eq(a->arg1, b->arg1) && eq(a->arg2, b->arg2);
+    }
+    return 0;
+}
 
 #define ISOP(expr, oper) (expr->type==BINOP && expr->op==oper)
-#define SWAP(x, y) do{typeof(x) z = x; x=y; y=z;}while(0)
-#define SWAP3(x, y, z) do{typeof(x) a = x; x=y; y=z; z=a;}while(0)
-#define UNMUL(expr, newexpr, coeff)                     \
-        if(ISOP(expr, MUL) && expr->arg1->type==NUM){   \
-            coeff = expr->arg1->f;                      \
-            free(expr->arg1);                           \
-            newexpr = expr->arg2;                       \
-            free(expr);                                 \
-        }else{                                          \
-            coeff = 1;                                  \
-            newexpr = expr;                             \
-        }
-#define REMUL(expr, coeff) (coeff==1 ? expr : NEW((Expr){.type=BINOP, .op=MUL,\
-                            .arg1=NEW((Expr){.type=NUM,.f=coeff}), .arg2=expr}))
 
 struct Matches {int n; struct Match {char name; Expr ** expr;} * l;};
+int match(char * pattern, Expr ** expr_pt, struct Matches * m);
+Expr * get_match(struct Matches * m, char name);
 
+unsigned int ord(Expr * expr){
+    struct Match l[64];
+    struct Matches m = (struct Matches){0, l};
+    if(match("*#ax", &expr, &m)){
+        return ord(get_match(&m, 'x'));
+    }
+    m = (struct Matches){0, l};
+    if(match("^x#b", &expr, &m)){
+        return 10*get_match(&m, 'b')->f + ord(get_match(&m, 'x'));
+    }
+    switch(expr->type){
+        case NUM: return 0;
+        case VAR: return 567u * (expr->i+1);
+        case BINOP: {
+            return expr->op*1298472149u + ord(expr->arg1)*874212412 + ord(expr->arg2)*32478187;
+        }
+    }
+}
+
+// MATCHING
 int ins_match(struct Matches * m, char name, Expr ** expr){
     for(int i=0; i<m->n; i++)
         if(m->l[i].name == name && !eq(*m->l[i].expr, *expr))
@@ -392,7 +406,7 @@ Expr * pop_match(struct Matches * m, char name){
     for(int i=0; i<m->n; i++) if(m->l[i].name == name){
         Expr ** expr_pt = m->l[i].expr;
         Expr * expr = *expr_pt;
-        m->l[i] = m->l[m->n--];
+        m->l[i] = m->l[--m->n];
         *expr_pt = NULL;
         return expr;
     }
@@ -401,26 +415,29 @@ Expr * pop_match(struct Matches * m, char name){
 Expr * unmatch(char ** pattern, struct Matches * m){
     int op;
     Expr * a, * b;
-    if((op=OPSYM(**pattern)) != -1){
-        (*pattern)++;
+    char c = *(*pattern)++;
+    if(c=='-'){
+        a = unmatch(pattern, m);
+        b = unmatch(pattern, m);
+        return NEW((Expr){.type=BINOP, .op=ADD, .arg1=a, .arg2=NEGATE(b)});
+    }
+    if((op=OPSYM(c)) != -1){
         a = unmatch(pattern, m);
         b = unmatch(pattern, m);
         return NEW((Expr){.type=BINOP, .op=op, .arg1=a, .arg2=b});
     }
-    if(**pattern == '.'){
-        Expr * expr = NEW(*get_match(m, *++(*pattern)));
-        (*pattern)++;
+    if(c == '.'){
+        Expr * expr = NEW(*get_match(m, *(*pattern)++));
         expr->arg1 = unmatch(pattern, m);
         expr->arg2 = unmatch(pattern, m);
         return expr;
     }
-    if(ISDIG(**pattern))
-        return NEW((Expr){.type=NUM, .f=*(*pattern)++ - '0'});
-    if(**pattern == '@'){
-        pattern++;
+    if(ISDIG(c))
+        return NEW((Expr){.type=NUM, .f=c - '0'});
+    if(c == '@'){
         return deep_copy(get_match(m, *(*pattern)++));
     }
-    return pop_match(m, *(*pattern)++);
+    return pop_match(m, c);
 }
 int match(char * pattern, Expr ** expr_pt, struct Matches * m){
     Expr * expr = *expr_pt;
@@ -452,8 +469,25 @@ int match(char * pattern, Expr ** expr_pt, struct Matches * m){
             return i;
         else
             return 0;
+    if(c=='!')
+        if(expr->type != NUM && ins_match(m, pattern[i++], expr_pt))
+            return i;
+        else
+            return 0;
+    if(c==','){
+        Expr * cmp = get_match(m, pattern[i++]);
+        if((ord(cmp) > ord(expr)) && 
+            ins_match(m, pattern[i++], expr_pt))
+            return i;
+        return 0;
+    }
     if(ISLET(c))
         if(ins_match(m, c, expr_pt))
+            return i;
+        else
+            return 0;
+    if(ISDIG(c))
+        if(expr->type==NUM && expr->f==(c-'0'))
             return i;
         else
             return 0;
@@ -474,13 +508,35 @@ Expr * simplify(Expr * expr){
     char * subs[][2] = {
         {"*a+bc", "+*@ab*ac"},      //distributive property
         {"/xx", "1"},               //definition of division
+        {"*1x", "x"},               //unit in multiplication
+        {"+0x", "x"},               //unit in addition
         {"+xx", "*2x"},             //factoring +definition of 2
         {"+*#axx", "*+a1x"},        //factoring
         {"+x*#bx", "*+1bx"},        // "
         {"+*#ax*#bx", "*+abx"},     // "
-        {"=.oax.obx", "=ab"},         //tautology
-        {"=.oxa.oxb", "=ab"},         // "
-        {"=xy", "=0-xy"},
+        {"*#a*#bx", "**abx"},
+        {"+x+xy", "+*2xy"},         //factoring +definition of 2
+        {"+*#ax+xy", "+*+a1xy"},    //factoring
+        {"+x+*#bxy", "+*+1bxy"},    // "
+        {"+*#ax+*#bxy", "+*+abxy"}, // "
+        {"=.oax.obx", "=ab"},       //tautology
+        {"=.oxa.oxb", "=ab"},       // "
+        {"=!x!y", "=0-xy"},         //rearange
+        {"++abc", "+a+bc"},         //left precedence preference
+        {"+y,yx", "+xy"},           //sorting
+        {"+y+,yxz", "+x+yz"},       // "
+        {"**abc", "*a*bc"},         //left precedence preference
+        {"*y,yx", "*xy"},           //sorting
+        {"*y*,yxz", "*x*yz"},       // "
+        {"*xx", "^x2"},             //power laws:
+        {"*^xax", "^x+a1"},
+        {"*x^xb", "^x+b1"},
+        {"*^xa^xb", "^x+ab"},
+        {"/^xa^xb", "^x-ab"},
+        {"+x^x2", "-^+x/122/14"},   //completing the square:
+        {"+x*a^x2", "-*@a^+x/1*2@a2/1*4a"},
+        {"+*bx^x2", "-^+x/@b22/^b24"},
+        {"+*bx*a^x2", "-*@a^+x/@b*2@a2/^b2*4a"},
         {NULL}
     };
     struct Match ms[100];
@@ -500,6 +556,20 @@ Expr * simplify(Expr * expr){
 }
 
 /*
+#define SWAP(x, y) do{typeof(x) z = x; x=y; y=z;}while(0)
+#define SWAP3(x, y, z) do{typeof(x) a = x; x=y; y=z; z=a;}while(0)
+#define UNMUL(expr, newexpr, coeff)                     \
+        if(ISOP(expr, MUL) && expr->arg1->type==NUM){   \
+            coeff = expr->arg1->f;                      \
+            free(expr->arg1);                           \
+            newexpr = expr->arg2;                       \
+            free(expr);                                 \
+        }else{                                          \
+            coeff = 1;                                  \
+            newexpr = expr;                             \
+        }
+#define REMUL(expr, coeff) (coeff==1 ? expr : NEW((Expr){.type=BINOP, .op=MUL,\
+                            .arg1=NEW((Expr){.type=NUM,.f=coeff}), .arg2=expr}))
 void simplify(Expr * expr){
 start:
     if(expr->type != BINOP)
@@ -510,7 +580,6 @@ recurse2:
     simplify(expr->arg2);
     if(expr->arg1->type == NUM && expr->arg2->type == NUM){
         double res = eval(expr, NULL);
-        //printf("%f %d %f: %f\n", expr->arg1->f, expr->op, expr->arg2->f, res);
         free_expr(expr->arg1), free_expr(expr->arg2);
         *expr = (Expr){.type=NUM, .f=res};
         return;
@@ -619,9 +688,7 @@ Expr * solve_for(Expr * eq, int v){
     Expr *l, *r;
     if(eq->type != BINOP){fprintf(stderr, "need an equation\n");return NULL;}
     if(eq->op != EQ){ fprintf(stderr, "need an equation\n"); return NULL;}
-    eq->arg2 = NEW((Expr){.type=BINOP, .op=ADD, .arg1=eq->arg2, .arg2=NEGATE(eq->arg1)});
-    eq->arg1 = NEW((Expr){.type=NUM, .f=0});
-    simplify(eq->arg2);
+    eq = simplify(eq);
     Expr * stack[64] = {eq};
     int dirs[64] = {0};
     int n = 0;
@@ -695,21 +762,24 @@ solve:
     }
 }
 
-double * sys_solve(Expr ** expr, int n, char ** dict){
+double * sys_solve(Expr ** expr, int n){
     Expr * solved[n];
     double * subs = malloc(sizeof(double)*n);
     int i, j;
     for(i=n-1; i>=0; i--){
         solved[i] = solve_for(expr[i], i);
+        if(!solved[i]) return NULL;
         for(j=0; j<i; j++){
             expr[j] = NEW((Expr){.type=BINOP, .op=EQ, 
                         .arg1=deep_copy(solved[i]), 
                         .arg2=solve_for(expr[j], i)});
-            print(expr[j]);
         }
     }
     for(i=0; i<n; i++)
-        subs[i] = eval(solved[i], subs);
+        subs[i] = eval(solved[i], subs),
+        expr[i] = NEW((Expr){.type=BINOP, .op=EQ,
+                    .arg1=NEW((Expr){.type=VAR, .i=i}),
+                    .arg2=solved[i]});
     return subs;
 }
 
@@ -719,20 +789,18 @@ void print(Expr * expr){
 }
 
 int main(int argc, char ** argv){
-    Expr * e = parse("x+x", dict);
-    struct Matches m = {0, malloc(1024)};
-    e = simplify(e);
-    print(e);
-    return 0;
     Expr * expr[] = {
-        parse("x+y+z^2=5", dict),
-        parse("2*x+2*y+z^2=6", dict),
-        parse("3*x+4*y+z^2=7", dict),
+        parse("x-y=4", dict),
+        parse("x+y=3", dict),
     };
-    double * sol = sys_solve(expr, 3, dict);
-    printf("%f, %f, %f\n", sol[0], sol[1], sol[2]);
+    double * sol = sys_solve(expr, LEN(expr));
+    if(!sol) return 1;
+    for(int i=0; i<LEN(expr); i++)
+        printf("%s=%f ", dict[i], sol[i]);
+    printf("\n");
+    free(sol);
+    for(int i=0; i<LEN(expr); i++)
+        free_expr(expr[i]);
     free_dict(dict);
-    //for(int i=0; i<3; i++)
-    //    free_expr(expr[i]);
     return 0;
 }
